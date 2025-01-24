@@ -1,0 +1,10 @@
+*.ts
+!index.ts
+!character.ts
+!mainCharacter.ts
+!solAICharacter.ts
+.env
+*.env
+.env*
+/data
+/generatedImages
