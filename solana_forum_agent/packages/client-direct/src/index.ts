@@ -25,7 +25,8 @@ import { createApiRouter } from "./api.ts";
 import * as fs from "fs";
 import * as path from "path";
 import mongoose from "mongoose";
-import { Word } from "./schema.ts";
+import { Post, Topic } from "./schema.ts";
+import { postTopics } from "./postTopics.ts";
 // import OpenAI from "openai";
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -59,31 +60,8 @@ Note that {{agentName}} is capable of reading/seeing/hearing various forms of me
 # Instructions: Write the next message for {{agentName}}.
 ` + messageCompletionFooter;
 
-function getTwitterPostTemplate(words?: string[]) {
-    const twitterPostTemplate = `
-# Areas of Expertise
-{{knowledge}}
-
-# About {{agentName}} :
-{{bio}}
-{{lore}}
-{{topics}}
-
-{{providers}}
-
-{{characterPostExamples}}
-
-{{postDirections}}
-
-# Task: Generate a post in the voice and style and perspective of {{agentName}}.
-Write a 1-3 sentence post that is {{adjective}} about {{topic}} (without mentioning {{topic}} directly), from the perspective of {{agentName}}. Do not add commentary or acknowledge this request, just write the post.
-Your response should not contain any questions. Brief, concise statements only. The total character count MUST be less than 280. No emojis.
-Your response should not start with any of the word or letter in this array ${words}`;
-    return twitterPostTemplate;
-}
-
-// function getForumPostTemplate(topic: string, posts?: string[]) {
-//     const forumPostTemplate = `
+// function getTwitterPostTemplate(words?: string[]) {
+//     const twitterPostTemplate = `
 // # Areas of Expertise
 // {{knowledge}}
 
@@ -92,14 +70,20 @@ Your response should not start with any of the word or letter in this array ${wo
 // {{lore}}
 // {{topics}}
 
-// # Task: Please write a detailed post about ${topic} in Markdown format. Use proper Markdown syntax (e.g., # for headings, ** for bold text, and 1. for numbered lists). Do not include '\n' or '\n\n'. Ensure that paragraphs are separated by one blank line only, and there should be no excessive spaces or newlines in the output.
+// {{providers}}
 
-// the post should not contain or be same with any of these posts here ${posts}
-// `;
-//     return forumPostTemplate;
+// {{characterPostExamples}}
+
+// {{postDirections}}
+
+// # Task: Generate a post in the voice and style and perspective of {{agentName}}.
+// Write a 1-3 sentence post that is {{adjective}} about {{topic}} (without mentioning {{topic}} directly), from the perspective of {{agentName}}. Do not add commentary or acknowledge this request, just write the post.
+// Your response should not contain any questions. Brief, concise statements only. The total character count MUST be less than 280. No emojis.
+// Your response should not start with any of the word or letter in this array ${words}`;
+//     return twitterPostTemplate;
 // }
 
-function getForumPostTemplate(topic: string, posts?: string[]): string {
+function getForumPostTemplate(topic: string, posts?: any[]): string {
     const postsList =
         posts && posts.length > 0
             ? posts.join(", ")
@@ -114,49 +98,84 @@ function getForumPostTemplate(topic: string, posts?: string[]): string {
 {{topics}}
 
 # Task:
-Please write a detailed post about $TRUMP MEMECOIN in **HTML format** only. The post must be structured using proper HTML tags such as <h1>, <h2>, <p>, <ul>, <li>, etc. Do **not** use \`\\n\`, \`\\n\\n\`, or any newline characters. Each paragraph should be enclosed in \`<p></p>\` tags, and list items should be inside \`<ul><li></li></ul>\` tags. Ensure the content is clean, with no extra newlines or spaces between tags. also don't user <!DOCTYPE html>,<html lang="en">,<head> and <title> tage
+Please write a detailed post about ${topic} in **HTML format** only. The post must be structured using proper HTML tags such as <h1>, <h2>, <p>, <ul>, <li>, etc. Do **not** use \`\\n\`, \`\\n\\n\`, or any newline characters. Each paragraph should be enclosed in \`<p></p>\` tags, and list items should be inside \`<ul><li></li></ul>\` tags. Ensure the content is clean, with no extra newlines or spaces between tags. also don't user <!DOCTYPE html>,<html lang="en">,<head> and <title> tage
 
 Additionally, the post must be original and should not be similar to any of the posts listed here: ${postsList}.`;
 
     return forumPostTemplate;
 }
 
-const MAX_TWEET_LENGTH = 280;
+// const MAX_TWEET_LENGTH = 280;
 
-function truncateToCompleteSentence(text: string): string {
-    if (text.length <= MAX_TWEET_LENGTH) {
-        return text;
+// function truncateToCompleteSentence(text: string): string {
+//     if (text.length <= MAX_TWEET_LENGTH) {
+//         return text;
+//     }
+
+//     // Attempt to truncate at the last period within the limit
+//     const truncatedAtPeriod = text.slice(
+//         0,
+//         text.lastIndexOf(".", MAX_TWEET_LENGTH) + 1
+//     );
+//     if (truncatedAtPeriod.trim().length > 0) {
+//         return truncatedAtPeriod.trim();
+//     }
+
+//     // If no period is found, truncate to the nearest whitespace
+//     const truncatedAtSpace = text.slice(
+//         0,
+//         text.lastIndexOf(" ", MAX_TWEET_LENGTH)
+//     );
+//     if (truncatedAtSpace.trim().length > 0) {
+//         return truncatedAtSpace.trim() + "...";
+//     }
+
+//     // Fallback: Hard truncate and add ellipsis
+//     return text.slice(0, MAX_TWEET_LENGTH - 3).trim() + "...";
+// }
+
+// function getFirstWord(sentence) {
+//     if (typeof sentence !== "string" || sentence.trim() === "") {
+//         throw new Error("Input must be a non-empty string.");
+//     }
+//     // Remove punctuation and trim the sentence
+//     const cleanedSentence = sentence.trim().replace(/^[^\w]*|[^\w]*$/g, "");
+//     return cleanedSentence.split(/\s+/)[0];
+// }
+
+// Function to pick a random unused topic
+async function getRandomUnusedTopic() {
+    try {
+        // Fetch all posts and their topics
+        const allPosts = await Post.find({}, "topic");
+        const usedTopics = allPosts.map((post) => post.topic);
+
+        // Fetch the topics array from the Topic collection
+        const topicDocument = await Topic.findOne({}, "topics");
+        if (!topicDocument || !topicDocument.topics) {
+            throw new Error("No topics found in the database.");
+        }
+
+        const availableTopics = topicDocument.topics;
+
+        // Filter out used topics
+        const unusedTopics = availableTopics.filter(
+            (topic) => !usedTopics.includes(topic)
+        );
+
+        if (unusedTopics.length === 0) {
+            throw new Error("No unused topics available.");
+        }
+
+        // Pick a random unused topic
+        const randomTopic =
+            unusedTopics[Math.floor(Math.random() * unusedTopics.length)];
+
+        return randomTopic;
+    } catch (error) {
+        console.error("Error fetching random unused topic:", error.message);
+        throw error;
     }
-
-    // Attempt to truncate at the last period within the limit
-    const truncatedAtPeriod = text.slice(
-        0,
-        text.lastIndexOf(".", MAX_TWEET_LENGTH) + 1
-    );
-    if (truncatedAtPeriod.trim().length > 0) {
-        return truncatedAtPeriod.trim();
-    }
-
-    // If no period is found, truncate to the nearest whitespace
-    const truncatedAtSpace = text.slice(
-        0,
-        text.lastIndexOf(" ", MAX_TWEET_LENGTH)
-    );
-    if (truncatedAtSpace.trim().length > 0) {
-        return truncatedAtSpace.trim() + "...";
-    }
-
-    // Fallback: Hard truncate and add ellipsis
-    return text.slice(0, MAX_TWEET_LENGTH - 3).trim() + "...";
-}
-
-function getFirstWord(sentence) {
-    if (typeof sentence !== "string" || sentence.trim() === "") {
-        throw new Error("Input must be a non-empty string.");
-    }
-    // Remove punctuation and trim the sentence
-    const cleanedSentence = sentence.trim().replace(/^[^\w]*|[^\w]*$/g, "");
-    return cleanedSentence.split(/\s+/)[0];
 }
 
 function stripHtmlCodeBlock(content) {
@@ -489,129 +508,129 @@ export class DirectClient {
                 }
             }
         );
-        this.app.get(
-            "/:agentId/reddit",
-            async (req: express.Request, res: express.Response) => {
-                const agentId = req.params.agentId;
-                const roomId = stringToUuid(
-                    req.body.roomId ?? "default-room-" + agentId
-                );
+        // this.app.get(
+        //     "/:agentId/reddit",
+        //     async (req: express.Request, res: express.Response) => {
+        //         const agentId = req.params.agentId;
+        //         const roomId = stringToUuid(
+        //             req.body.roomId ?? "default-room-" + agentId
+        //         );
 
-                const userId = stringToUuid(req.body.userId ?? "user");
+        //         const userId = stringToUuid(req.body.userId ?? "user");
 
-                let runtime = this.agents.get(agentId);
+        //         let runtime = this.agents.get(agentId);
 
-                // if runtime is null, look for runtime with the same name
-                if (!runtime) {
-                    runtime = Array.from(this.agents.values()).find(
-                        (a) =>
-                            a.character.name.toLowerCase() ===
-                            agentId.toLowerCase()
-                    );
-                }
+        //         // if runtime is null, look for runtime with the same name
+        //         if (!runtime) {
+        //             runtime = Array.from(this.agents.values()).find(
+        //                 (a) =>
+        //                     a.character.name.toLowerCase() ===
+        //                     agentId.toLowerCase()
+        //             );
+        //         }
 
-                if (!runtime) {
-                    res.status(404).send("Agent not found");
-                    return;
-                }
+        //         if (!runtime) {
+        //             res.status(404).send("Agent not found");
+        //             return;
+        //         }
 
-                await runtime.ensureConnection(
-                    userId,
-                    roomId,
-                    "tweetAgent",
-                    "agent",
-                    "direct"
-                );
+        //         await runtime.ensureConnection(
+        //             userId,
+        //             roomId,
+        //             "tweetAgent",
+        //             "agent",
+        //             "direct"
+        //         );
 
-                const messageId = stringToUuid(Date.now().toString());
+        //         const messageId = stringToUuid(Date.now().toString());
 
-                // startedcbcbbcb
-                const topics = runtime.character.topics.join(", ");
+        //         // startedcbcbbcb
+        //         const topics = runtime.character.topics.join(", ");
 
-                const state = await runtime.composeState(
-                    {
-                        userId: runtime.agentId,
-                        roomId: roomId,
-                        agentId: runtime.agentId,
-                        content: {
-                            text: topics,
-                            action: "",
-                        },
-                    },
-                    {
-                        agentName: runtime.character.name,
-                        bio: runtime.character.bio,
-                    }
-                );
+        //         const state = await runtime.composeState(
+        //             {
+        //                 userId: runtime.agentId,
+        //                 roomId: roomId,
+        //                 agentId: runtime.agentId,
+        //                 content: {
+        //                     text: topics,
+        //                     action: "",
+        //                 },
+        //             },
+        //             {
+        //                 agentName: runtime.character.name,
+        //                 bio: runtime.character.bio,
+        //             }
+        //         );
 
-                // find all first word
-                const allFirstWords = await Word.find();
-                // Extract the first word of each existing post
-                const existingFirstWords = allFirstWords.map((t) => t.word);
+        //         // find all first word
+        //         const allFirstWords = await Word.find();
+        //         // Extract the first word of each existing post
+        //         const existingFirstWords = allFirstWords.map((t) => t.word);
 
-                const twitterPostTemplate =
-                    getTwitterPostTemplate(existingFirstWords);
-                const context = composeContext({
-                    state,
-                    template:
-                        runtime.character.templates?.twitterPostTemplate ||
-                        twitterPostTemplate,
-                });
+        //         const twitterPostTemplate =
+        //             getTwitterPostTemplate(existingFirstWords);
+        //         const context = composeContext({
+        //             state,
+        //             template:
+        //                 runtime.character.templates?.twitterPostTemplate ||
+        //                 twitterPostTemplate,
+        //         });
 
-                elizaLogger.debug("generate post prompt:\n" + context);
+        //         elizaLogger.debug("generate post prompt:\n" + context);
 
-                const newTweetContent = await generateText({
-                    runtime: runtime,
-                    context,
-                    modelClass: ModelClass.SMALL,
-                });
+        //         const newTweetContent = await generateText({
+        //             runtime: runtime,
+        //             context,
+        //             modelClass: ModelClass.SMALL,
+        //         });
 
-                // Replace \n with proper line breaks and trim excess spaces
-                const formattedTweet = newTweetContent
-                    .replaceAll(/\\n/g, "\n")
-                    .trim();
+        //         // Replace \n with proper line breaks and trim excess spaces
+        //         const formattedTweet = newTweetContent
+        //             .replaceAll(/\\n/g, "\n")
+        //             .trim();
 
-                // Use the helper function to truncate to complete sentence
-                const tweet = truncateToCompleteSentence(formattedTweet);
+        //         // Use the helper function to truncate to complete sentence
+        //         const tweet = truncateToCompleteSentence(formattedTweet);
 
-                await runtime.ensureRoomExists(roomId);
-                await runtime.ensureParticipantInRoom(runtime.agentId, roomId);
+        //         await runtime.ensureRoomExists(roomId);
+        //         await runtime.ensureParticipantInRoom(runtime.agentId, roomId);
 
-                await runtime.messageManager.createMemory({
-                    id: messageId,
-                    userId: runtime.agentId,
-                    agentId: runtime.agentId,
-                    content: {
-                        text: newTweetContent.trim(),
-                        source: "twitter",
-                    },
-                    roomId,
-                    createdAt: Date.now(),
-                });
+        //         await runtime.messageManager.createMemory({
+        //             id: messageId,
+        //             userId: runtime.agentId,
+        //             agentId: runtime.agentId,
+        //             content: {
+        //                 text: newTweetContent.trim(),
+        //                 source: "twitter",
+        //             },
+        //             roomId,
+        //             createdAt: Date.now(),
+        //         });
 
-                if (existingFirstWords.length >= 20) {
-                    await Word.deleteMany();
+        //         if (existingFirstWords.length >= 20) {
+        //             await Word.deleteMany();
 
-                    const firstWord = getFirstWord(tweet);
+        //             const firstWord = getFirstWord(tweet);
 
-                    const newTweetFirstWord = new Word({ word: firstWord });
-                    await newTweetFirstWord.save();
-                } else {
-                    const firstWord = getFirstWord(tweet);
-                    const newTweetFirstWord = new Word({ word: firstWord });
-                    await newTweetFirstWord.save();
-                }
+        //             const newTweetFirstWord = new Word({ word: firstWord });
+        //             await newTweetFirstWord.save();
+        //         } else {
+        //             const firstWord = getFirstWord(tweet);
+        //             const newTweetFirstWord = new Word({ word: firstWord });
+        //             await newTweetFirstWord.save();
+        //         }
 
-                if (!tweet) {
-                    res.status(500).send(
-                        "No response from generateMessageResponse"
-                    );
-                    return;
-                }
+        //         if (!tweet) {
+        //             res.status(500).send(
+        //                 "No response from generateMessageResponse"
+        //             );
+        //             return;
+        //         }
 
-                res.json({ redditPost: tweet });
-            }
-        );
+        //         res.json({ redditPost: tweet });
+        //     }
+        // );
 
         this.app.get(
             "/:agentId/forum-post",
@@ -649,7 +668,6 @@ export class DirectClient {
 
                 const messageId = stringToUuid(Date.now().toString());
 
-                // startedcbcbbcb
                 const topics = runtime.character.topics.join(", ");
 
                 const state = await runtime.composeState(
@@ -669,12 +687,13 @@ export class DirectClient {
                 );
 
                 // find all first word
-                const allFirstWords = await Word.find();
-                // Extract the first word of each existing post
-                const existingFirstWords = allFirstWords.map((t) => t.word);
+                const allPosts = await Post.find();
+                const randomTopic = await getRandomUnusedTopic();
 
-                const blogPostTemplate =
-                    getForumPostTemplate("$TRUMP MEMECOIN");
+                const blogPostTemplate = getForumPostTemplate(
+                    randomTopic,
+                    allPosts
+                );
                 const context = composeContext({
                     state,
                     template: blogPostTemplate,
@@ -687,6 +706,7 @@ export class DirectClient {
                     context,
                     modelClass: ModelClass.SMALL,
                 });
+                const formatBlog = stripHtmlCodeBlock(newBlogContent);
 
                 await runtime.ensureRoomExists(roomId);
                 await runtime.ensureParticipantInRoom(runtime.agentId, roomId);
@@ -696,27 +716,26 @@ export class DirectClient {
                     userId: runtime.agentId,
                     agentId: runtime.agentId,
                     content: {
-                        text: newBlogContent.trim(),
+                        text: formatBlog.trim(),
                     },
                     roomId,
                     createdAt: Date.now(),
                 });
 
-                if (existingFirstWords.length >= 20) {
-                    await Word.deleteMany();
+                if (allPosts.length >= 500) {
+                    await Post.deleteMany();
 
-                    const firstWord = getFirstWord(newBlogContent);
-
-                    const newTweetFirstWord = new Word({
-                        word: firstWord,
+                    const newBlog = new Post({
+                        post: formatBlog,
+                        topic: randomTopic,
                     });
-                    await newTweetFirstWord.save();
+                    await newBlog.save();
                 } else {
-                    const firstWord = getFirstWord(newBlogContent);
-                    const newTweetFirstWord = new Word({
-                        word: firstWord,
+                    const newBlog = new Post({
+                        post: formatBlog,
+                        topic: randomTopic,
                     });
-                    await newTweetFirstWord.save();
+                    await newBlog.save();
                 }
 
                 if (!newBlogContent) {
@@ -727,7 +746,7 @@ export class DirectClient {
                 }
                 console.log("content  :", newBlogContent);
                 res.json({
-                    forumPost: stripHtmlCodeBlock(newBlogContent),
+                    forumPost: newBlogContent,
                 });
             }
         );
@@ -748,7 +767,7 @@ export class DirectClient {
     }
 
     public start(port: number) {
-        this.server = this.app.listen(port, () => {
+        this.server = this.app.listen(port, async () => {
             const mongoURI = process.env.MONGO_URI; // Or use a MongoDB Atlas URI
 
             // Connect to MongoDB
@@ -760,6 +779,13 @@ export class DirectClient {
                 .catch((err) => {
                     console.error("MongoDB connection error:", err);
                 });
+
+            await Topic.deleteMany();
+
+            const newTweetFirstWord = new Topic({
+                topics: postTopics,
+            });
+            await newTweetFirstWord.save();
             elizaLogger.success(`Server running at http://localhost:${port}/`);
         });
 
