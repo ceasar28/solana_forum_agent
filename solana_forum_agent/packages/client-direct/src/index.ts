@@ -747,7 +747,7 @@ export class DirectClient {
                 console.log("content  :", newBlogContent);
                 res.json({
                     topic: randomTopic,
-                    forumPost: newBlogContent,
+                    forumPost: formatBlog,
                 });
             }
         );
