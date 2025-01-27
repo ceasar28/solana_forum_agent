@@ -633,12 +633,14 @@ export class DirectClient {
         // );
 
         this.app.get(
-            "/:agentId/forum-post",
+            "/:agentId/:forumId/forum-post",
             async (req: express.Request, res: express.Response) => {
                 const agentId = req.params.agentId;
+                const fromForum = req.params.forumId;
                 const roomId = stringToUuid(
                     req.body.roomId ?? "default-room-" + agentId
                 );
+                console.log("forumId   :", fromForum);
 
                 const userId = stringToUuid(req.body.userId ?? "user");
 
@@ -722,7 +724,7 @@ export class DirectClient {
                     createdAt: Date.now(),
                 });
 
-                if (allPosts.length >= 500) {
+                if (allPosts.length >= 500 && fromForum === "3114") {
                     await Post.deleteMany();
 
                     const newBlog = new Post({
@@ -730,12 +732,13 @@ export class DirectClient {
                         topic: randomTopic,
                     });
                     await newBlog.save();
-                } else {
+                } else if (fromForum === "3114") {
                     const newBlog = new Post({
                         post: formatBlog,
                         topic: randomTopic,
                     });
                     await newBlog.save();
+                    console.log("savedddddd");
                 }
 
                 if (!newBlogContent) {
@@ -751,6 +754,24 @@ export class DirectClient {
                 });
             }
         );
+        this.app.get(
+            "/allPosts",
+            async (req: express.Request, res: express.Response) => {
+                try {
+                    const allPosts = await Post.find();
+                    if (allPosts.length > 0) {
+                        res.json({ data: allPosts });
+                        return;
+                    } else {
+                        res.json({ data: [] });
+                        return;
+                    }
+                } catch (error) {
+                    console.log(error);
+                }
+            }
+        );
+
         this.app.get("/ping", (req: express.Request, res: express.Response) => {
             res.json({
                 success: true,
